@@ -1,0 +1,2180 @@
+```html
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>El Gato - Corrida Infinita</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@500;700;800;900&display=swap" rel="stylesheet" />
+  <style>
+    /* Reset e bloqueio de seleção para experiência fluida em toque, mouse e teclado */
+    * {
+      box-sizing: border-box;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    html,
+    body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      background: radial-gradient(circle at top, #131c31 0%, #070b14 100%);
+      color: #f8fafc;
+      font-family: "Inter", system-ui, -apple-system, sans-serif;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+
+    .app-shell {
+      width: 100%;
+      max-width: 420px;
+      height: 100%;
+      max-height: 760px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 10px;
+      gap: 8px;
+    }
+
+    .canvas-wrap {
+      position: relative;
+      width: 100%;
+      max-width: 360px;
+      aspect-ratio: 360 / 520;
+      border-radius: 20px;
+      overflow: hidden;
+      background: #0f172a;
+      box-shadow: 0 22px 55px rgba(0, 0, 0, 0.78), 0 0 0 2px rgba(255, 255, 255, 0.08);
+    }
+
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+      cursor: pointer;
+    }
+
+    /* Popup animado de conquista desbloqueada */
+    .toast-banner {
+      position: absolute;
+      top: 54px;
+      left: 50%;
+      transform: translateX(-50%) translateY(-18px);
+      background: linear-gradient(135deg, #f59e0b, #ea580c);
+      color: #ffffff;
+      padding: 8px 14px;
+      border-radius: 999px;
+      font-size: 11.5px;
+      font-weight: 800;
+      letter-spacing: 0.25px;
+      box-shadow: 0 10px 26px rgba(234, 88, 12, 0.45);
+      opacity: 0;
+      pointer-events: none;
+      transition: transform 0.28s ease, opacity 0.28s ease;
+      white-space: nowrap;
+      z-index: 25;
+      max-width: 92%;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .toast-banner.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+
+    .footer-hint {
+      font-size: 11px;
+      color: #94a3b8;
+      text-align: center;
+      line-height: 1.35;
+    }
+
+    .footer-hint b {
+      color: #e2e8f0;
+    }
+  </style>
+</head>
+<body>
+  <div class="app-shell">
+    <div class="canvas-wrap">
+      <canvas id="gameCanvas" width="360" height="520"></canvas>
+      <div id="toastBanner" class="toast-banner">Conquista desbloqueada!</div>
+    </div>
+    <div class="footer-hint">
+      Toque / Clique / <b>Espaço</b> / <b>↑</b> pula &nbsp;|&nbsp; <b>P</b> / <b>Esc</b> pausa &nbsp;|&nbsp; <b>Enter</b> confirma
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      "use strict";
+
+      // =========================================================
+      // REFERÊNCIAS E CONSTANTES PRINCIPAIS DO CANVAS
+      // =========================================================
+      const canvas = document.getElementById("gameCanvas");
+      const ctx = canvas ? canvas.getContext("2d") : null;
+      const toastEl = document.getElementById("toastBanner");
+
+      const W = 360;
+      const H = 520;
+      const groundY = 448;
+      const STORAGE_KEY = "el_gato_corrida_infinita_v5";
+      const CONTINUE_COST = 500;
+
+      if (!canvas || !ctx) {
+        return;
+      }
+
+      canvas.width = W;
+      canvas.height = H;
+
+      // =========================================================
+      // 1) OS 9 PERSONAGENS JOGÁVEIS (PASSIVAS, METAS E PREÇOS)
+      // =========================================================
+      const CHARACTERS = [
+        {
+          id: "classico",
+          nome: "Gato Clássico",
+          preco: 0,
+          metaPts: 0,
+          vidas: 3,
+          pulos: 2,
+          cor: "#f59e0b",
+          detalhe: "#fde68a",
+          passivaCurta: "Cinto clássico e salto duplo equilibrado.",
+          passiva: "Salto duplo ágil com cinto de fivela dourada (3 vidas)."
+        },
+        {
+          id: "ninja",
+          nome: "Gatoninja",
+          preco: 240,
+          metaPts: 1200,
+          vidas: 3,
+          pulos: 3,
+          cor: "#334155",
+          detalhe: "#ef4444",
+          passivaCurta: "+1 pulo extra no ar (3 pulos totais).",
+          passiva: "+1 pulo extra no ar com faixa e máscara ninja."
+        },
+        {
+          id: "cyber",
+          nome: "Gatocyber",
+          preco: 520,
+          metaPts: 2500,
+          vidas: 3,
+          pulos: 2,
+          cor: "#06b6d4",
+          detalhe: "#a5f3fc",
+          passivaCurta: "+20% de moedas coletadas na partida.",
+          passiva: "+20% de moedas coletadas com jaqueta e visor neon."
+        },
+        {
+          id: "mago",
+          nome: "Gatomago",
+          preco: 950,
+          metaPts: 4500,
+          vidas: 4,
+          pulos: 2,
+          cor: "#8b5cf6",
+          detalhe: "#facc15",
+          passivaCurta: "+35% de duração dos power-ups.",
+          passiva: "+35% de duração em todos os power-ups com manto arcano."
+        },
+        {
+          id: "rei",
+          nome: "Gatorei",
+          preco: 1550,
+          metaPts: 7500,
+          vidas: 5,
+          pulos: 2,
+          cor: "#eab308",
+          detalhe: "#fef08a",
+          passivaCurta: "Começa a partida com Escudo de Bolha.",
+          passiva: "Inicia toda corrida com Escudo de Bolha e manto real."
+        },
+        {
+          id: "farao",
+          nome: "Gatofaraó",
+          preco: 2300,
+          metaPts: 11000,
+          vidas: 5,
+          pulos: 3,
+          cor: "#d97706",
+          detalhe: "#2dd4bf",
+          passivaCurta: "+25% de pontos e +15% de moedas.",
+          passiva: "+25% de pontos e +15% de moedas com paramentos reais."
+        },
+        {
+          id: "vampiro",
+          nome: "Gato Vampiro",
+          preco: 3100,
+          metaPts: 14500,
+          vidas: 4,
+          pulos: 4,
+          cor: "#991b1b",
+          detalhe: "#fda4af",
+          passivaCurta: "+1 vida a cada 80 moedas na partida.",
+          passiva: "Recupera +1 vida a cada 80 moedas na corrida com capa."
+        },
+        {
+          id: "astronauta",
+          nome: "Gato Astronauta",
+          preco: 4200,
+          metaPts: 18000,
+          vidas: 5,
+          pulos: 5,
+          cor: "#e2e8f0",
+          detalhe: "#38bdf8",
+          passivaCurta: "Tempo mais lento e gravidade lunar no ar.",
+          passiva: "Tempo mais devagar no ar e gravidade lunar com traje espacial."
+        },
+        {
+          id: "dragao",
+          nome: "Gato Dragão",
+          preco: 5600,
+          metaPts: 23000,
+          vidas: 6,
+          pulos: 4,
+          cor: "#ea580c",
+          detalhe: "#facc15",
+          passivaCurta: "+30% de pontos em toda a partida.",
+          passiva: "+30% de pontos com chifres, asas e peitoral dracônico."
+        }
+      ];
+
+      // =========================================================
+      // 2) SISTEMA DE ASES (6 ASES COMPRÁVEIS E EQUIPÁVEIS)
+      // =========================================================
+      const ACES = [
+        {
+          id: "as_pontos",
+          nome: "Ás das Chamas",
+          preco: 450,
+          desc: "+15% de pontuação em todas as corridas.",
+          bonusPts: 0.15
+        },
+        {
+          id: "as_moedas",
+          nome: "Ás da Fortuna",
+          preco: 600,
+          desc: "+25% de moedas ganhas ao fim da partida.",
+          bonusMoedas: 0.25
+        },
+        {
+          id: "as_vida",
+          nome: "Ás Vital",
+          preco: 850,
+          desc: "+1 vida máxima inicial na corrida.",
+          bonusVida: 1
+        },
+        {
+          id: "as_escudo",
+          nome: "Ás da Bolha",
+          preco: 700,
+          desc: "Inicia toda corrida com Escudo de Bolha.",
+          startEscudo: true
+        },
+        {
+          id: "as_skate",
+          nome: "Ás do Asfalto",
+          preco: 950,
+          desc: "+30% de duração extra para o Skate.",
+          bonusPower: 0.3
+        },
+        {
+          id: "as_febre",
+          nome: "Ás Dourado",
+          preco: 1200,
+          desc: "Modo Febre 2x dura +35% mais tempo.",
+          bonusFebre: 0.35
+        }
+      ];
+
+      // =========================================================
+      // 3) 15 CONQUISTAS COM RECOMPENSAS E PAGINAÇÃO (3x5)
+      // =========================================================
+      const ACHIEVEMENTS = [
+        { id: "a1", titulo: "Primeiros Passos", desc: "Alcance 2.000 pontos em uma corrida.", premio: 150, stat: "bestPts", alvo: 2000 },
+        { id: "a2", titulo: "Corredor Veloz", desc: "Alcance 6.500 pontos em uma corrida.", premio: 260, stat: "bestPts", alvo: 6500 },
+        { id: "a3", titulo: "Lenda Felina", desc: "Alcance 15.000 pontos em uma corrida.", premio: 520, stat: "bestPts", alvo: 15000 },
+        { id: "a4", titulo: "Bolso Cheio", desc: "Colete 55 moedas em uma única corrida.", premio: 180, stat: "bestRunCoins", alvo: 55 },
+        { id: "a5", titulo: "Caçador de Ouro", desc: "Colete 110 moedas em uma única corrida.", premio: 360, stat: "bestRunCoins", alvo: 110 },
+        { id: "a6", titulo: "Cofre Real", desc: "Acumule 2.000 moedas no total.", premio: 320, stat: "totalCoinsEarned", alvo: 2000 },
+        { id: "a7", titulo: "Magnata dos Gatos", desc: "Acumule 7.500 moedas no total.", premio: 650, stat: "totalCoinsEarned", alvo: 7500 },
+        { id: "a8", titulo: "Mestre do Skate", desc: "Ative o Skate 30 vezes.", premio: 240, stat: "skateUses", alvo: 30 },
+        { id: "a9", titulo: "Campo Magnético", desc: "Puxe 150 moedas usando o Ímã.", premio: 280, stat: "magnetCoins", alvo: 150 },
+        { id: "a10", titulo: "Combo Supremo", desc: "Mantenha Skate + Ímã juntos por 480 frames.", premio: 380, stat: "comboFrames", alvo: 480 },
+        { id: "a11", titulo: "Intocável", desc: "Bloqueie 25 impactos com Escudo de Bolha.", premio: 300, stat: "shieldBlocks", alvo: 25 },
+        { id: "a12", titulo: "Febre do Ouro", desc: "Ative o Modo Febre 2x 22 vezes.", premio: 310, stat: "feverUses", alvo: 22 },
+        { id: "a13", titulo: "Sem Arranhões", desc: "Faça 4.500 pontos sem perder nenhuma vida.", premio: 440, stat: "noHitBestPts", alvo: 4500 },
+        { id: "a14", titulo: "Maratonista", desc: "Jogue 35 partidas completas.", premio: 260, stat: "runsPlayed", alvo: 35 },
+        { id: "a15", titulo: "Clube dos 9 Gatos", desc: "Desbloqueie todos os 9 personagens.", premio: 1000, stat: "unlockedCount", alvo: 9 }
+      ];
+
+      // =========================================================
+      // SÍNTESE DE ÁUDIO SEGURA VIA WEB AUDIO API
+      // =========================================================
+      let audioCtx = null;
+
+      function ensureAudio() {
+        try {
+          if (!state.soundOn) return;
+          if (!audioCtx) {
+            const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+            if (AudioContextClass) {
+              audioCtx = new AudioContextClass();
+            }
+          }
+          if (audioCtx && audioCtx.state === "suspended") {
+            const p = audioCtx.resume();
+            if (p && typeof p.catch === "function") {
+              p.catch(function () {});
+            }
+          }
+        } catch (err) {
+          // Ignora bloqueios de áudio no ambiente
+        }
+      }
+
+      function playTone(freq, duration, type, gainVal, slideFreq) {
+        try {
+          if (!state.soundOn || !audioCtx || audioCtx.state === "closed") return;
+          const now = audioCtx.currentTime;
+          const osc = audioCtx.createOscillator();
+          const gain = audioCtx.createGain();
+
+          osc.type = type || "sine";
+          osc.frequency.setValueAtTime(freq, now);
+          if (slideFreq) {
+            osc.frequency.exponentialRampToValueAtTime(Math.max(40, slideFreq), now + duration);
+          }
+
+          gain.gain.setValueAtTime(gainVal || 0.08, now);
+          gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+
+          osc.connect(gain);
+          gain.connect(audioCtx.destination);
+
+          osc.start(now);
+          osc.stop(now + duration);
+        } catch (err) {
+          // Ignora falha pontual de síntese
+        }
+      }
+
+      const sfx = {
+        jump: function () { playTone(380, 0.12, "triangle", 0.08, 620); },
+        coin: function () { playTone(880, 0.09, "sine", 0.07, 1240); },
+        power: function () {
+          playTone(520, 0.1, "triangle", 0.08, 780);
+          setTimeout(function () { playTone(780, 0.14, "sine", 0.08, 1040); }, 70);
+        },
+        shield: function () { playTone(300, 0.16, "sawtooth", 0.06, 520); },
+        hit: function () { playTone(190, 0.22, "sawtooth", 0.09, 75); },
+        ach: function () {
+          playTone(660, 0.11, "triangle", 0.09, 880);
+          setTimeout(function () { playTone(990, 0.2, "sine", 0.09, 1320); }, 90);
+        }
+      };
+
+      // =========================================================
+      // PERSISTÊNCIA LOCALSTORAGE E ESTADO DO JOGO
+      // =========================================================
+      function defaultSave() {
+        return {
+          moedas: 150,
+          recorde: 0,
+          selectedChar: "classico",
+          unlockedChars: ["classico"],
+          ownedAces: [],
+          equippedAces: [],
+          unlockedAchs: [],
+          soundOn: true,
+          stats: {
+            bestPts: 0,
+            bestRunCoins: 0,
+            totalCoinsEarned: 0,
+            skateUses: 0,
+            magnetCoins: 0,
+            comboFrames: 0,
+            shieldBlocks: 0,
+            feverUses: 0,
+            noHitBestPts: 0,
+            runsPlayed: 0
+          }
+        };
+      }
+
+      function loadSave() {
+        try {
+          const raw = window.localStorage ? window.localStorage.getItem(STORAGE_KEY) : null;
+          if (!raw) return defaultSave();
+          const parsed = JSON.parse(raw);
+          const base = defaultSave();
+          const validIds = new Set(CHARACTERS.map(function (c) { return c.id; }));
+          const unlocked = Array.isArray(parsed.unlockedChars)
+            ? parsed.unlockedChars.filter(function (id) { return validIds.has(id); })
+            : ["classico"];
+          if (!unlocked.includes("classico")) unlocked.unshift("classico");
+
+          const selected =
+            validIds.has(parsed.selectedChar) && unlocked.includes(parsed.selectedChar)
+              ? parsed.selectedChar
+              : "classico";
+
+          return {
+            ...base,
+            ...parsed,
+            moedas: Number.isFinite(parsed.moedas) ? Math.max(0, Math.floor(parsed.moedas)) : base.moedas,
+            recorde: Number.isFinite(parsed.recorde) ? Math.max(0, Math.floor(parsed.recorde)) : 0,
+            selectedChar: selected,
+            unlockedChars: unlocked,
+            ownedAces: Array.isArray(parsed.ownedAces) ? parsed.ownedAces : [],
+            equippedAces: Array.isArray(parsed.equippedAces) ? parsed.equippedAces : [],
+            unlockedAchs: Array.isArray(parsed.unlockedAchs) ? parsed.unlockedAchs : [],
+            soundOn: typeof parsed.soundOn === "boolean" ? parsed.soundOn : true,
+            stats: { ...base.stats, ...(parsed.stats || {}) }
+          };
+        } catch (err) {
+          return defaultSave();
+        }
+      }
+
+      const state = loadSave();
+
+      function saveGame() {
+        try {
+          if (window.localStorage) {
+            window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+          }
+        } catch (err) {
+          // Ignora falha de escrita em armazenamento restrito
+        }
+      }
+
+      // Telas: "MENU" | "LOJA" | "ASES" | "CONQUISTAS" | "JOGO" | "PAUSA" | "GAMEOVER"
+      let tela = "MENU";
+      let shopPage = 0; // 0 = Pág 1/2 (5 gatos), 1 = Pág 2/2 (4 gatos)
+      let achPage = 0;  // 0, 1, 2 (3 páginas de 5 conquistas)
+      let confirmResetStep = 0; // 0 -> 1
+      let feedbackMsg = "";
+      let feedbackTimer = 0;
+      let continuedThisRun = false;
+
+      // Variáveis da corrida
+      let frame = 0;
+      let pts = 0;
+      let runCoins = 0;
+      let coinFraction = 0;
+      let vampCoinCounter = 0;
+      let tookDamageInRun = false;
+      let vidas = 3;
+      let maxVidas = 3;
+      let jumpsLeft = 2;
+      let invulnTimer = 0;
+
+      // Duração dos power-ups ativos (em frames)
+      let skateT = 0;
+      let imaT = 0;
+      let febreT = 0;
+      let molaT = 0;
+      let lentoT = 0; // Tempo mais devagar (câmera lenta)
+      let escudoAtivo = false;
+
+      const player = {
+        x: 68,
+        y: groundY - 34,
+        w: 32,
+        h: 34,
+        vy: 0
+      };
+
+      let obs = [];
+      let buracos = [];
+      let moedas = [];
+      let plataformas = [];
+      let powerups = [];
+      let particulas = [];
+      let textos = [];
+      let hitBoxes = [];
+
+      function showToast(text) {
+        if (!toastEl) return;
+        toastEl.textContent = text;
+        toastEl.classList.add("show");
+        clearTimeout(showToast._timer);
+        showToast._timer = setTimeout(function () {
+          toastEl.classList.remove("show");
+        }, 2400);
+      }
+
+      function setBanner(msg) {
+        feedbackMsg = msg;
+        feedbackTimer = 130;
+      }
+
+      function getCharById(id) {
+        return CHARACTERS.find(function (c) { return c.id === id; }) || CHARACTERS[0];
+      }
+
+      function hasAce(aceId) {
+        return state.equippedAces.includes(aceId);
+      }
+
+      function getBestScoreReference() {
+        return Math.max(
+          state.recorde || 0,
+          (state.stats && state.stats.bestPts) || 0,
+          Math.floor(pts || 0)
+        );
+      }
+
+      function isMetaReached(ch) {
+        return getBestScoreReference() >= (ch.metaPts || 0);
+      }
+
+      function isCharUnlocked(ch) {
+        return (ch.metaPts || 0) === 0 || state.unlockedChars.includes(ch.id);
+      }
+
+      function addFloatText(x, y, txt, color) {
+        textos.push({ x: x, y: y, txt: txt, color: color || "#fde047", life: 45 });
+      }
+
+      function addBurst(x, y, color, count) {
+        const total = count || 10;
+        for (let i = 0; i < total; i++) {
+          const ang = (Math.PI * 2 * i) / total + Math.random() * 0.4;
+          const spd = 1.6 + Math.random() * 3.4;
+          particulas.push({
+            x: x,
+            y: y,
+            vx: Math.cos(ang) * spd,
+            vy: Math.sin(ang) * spd - 1.2,
+            r: 2.4 + Math.random() * 2.4,
+            color: color,
+            life: 24 + Math.floor(Math.random() * 14)
+          });
+        }
+      }
+
+      function syncReachedMetas() {
+        const refScore = getBestScoreReference();
+        let anyReached = false;
+        for (const ch of CHARACTERS) {
+          if (refScore >= ch.metaPts && !state.unlockedChars.includes(ch.id) && ch.metaPts === 0) {
+            state.unlockedChars.push(ch.id);
+            anyReached = true;
+          }
+        }
+        if (anyReached) {
+          saveGame();
+        }
+      }
+
+      function checkAchievements() {
+        state.stats.bestPts = Math.max(state.stats.bestPts, Math.floor(pts));
+        state.stats.bestRunCoins = Math.max(state.stats.bestRunCoins, runCoins);
+        if (!tookDamageInRun) {
+          state.stats.noHitBestPts = Math.max(state.stats.noHitBestPts, Math.floor(pts));
+        }
+
+        let unlockedAny = false;
+        for (const ach of ACHIEVEMENTS) {
+          if (state.unlockedAchs.includes(ach.id)) continue;
+          const val = ach.stat === "unlockedCount" ? state.unlockedChars.length : (state.stats[ach.stat] || 0);
+          if (val >= ach.alvo) {
+            state.unlockedAchs.push(ach.id);
+            state.moedas += ach.premio;
+            state.stats.totalCoinsEarned += ach.premio;
+            unlockedAny = true;
+            sfx.ach();
+            showToast("Conquista: " + ach.titulo + " (+" + ach.premio + "m)");
+          }
+        }
+        if (unlockedAny) {
+          saveGame();
+        }
+      }
+
+      // =========================================================
+      // INÍCIO, CONTINUAÇÃO POR 500 MOEDAS E FIM DE CORRIDA
+      // =========================================================
+      function startRun() {
+        ensureAudio();
+        const ch = getCharById(state.selectedChar);
+        if (!isCharUnlocked(ch)) {
+          state.selectedChar = "classico";
+        }
+        const activeCh = getCharById(state.selectedChar);
+
+        frame = 0;
+        pts = 0;
+        runCoins = 0;
+        coinFraction = 0;
+        vampCoinCounter = 0;
+        tookDamageInRun = false;
+        continuedThisRun = false;
+
+        maxVidas = activeCh.vidas + (hasAce("as_vida") ? 1 : 0);
+        vidas = maxVidas;
+        jumpsLeft = activeCh.pulos;
+        invulnTimer = 45;
+
+        skateT = 0;
+        imaT = 0;
+        febreT = 0;
+        molaT = 0;
+        lentoT = 0;
+        escudoAtivo = activeCh.id === "rei" || hasAce("as_escudo");
+
+        player.x = 68;
+        player.y = groundY - player.h;
+        player.vy = 0;
+
+        obs = [];
+        buracos = [];
+        moedas = [];
+        plataformas = [];
+        powerups = [];
+        particulas = [];
+        textos = [];
+
+        confirmResetStep = 0;
+        tela = "JOGO";
+        sfx.power();
+      }
+
+      function finishRun() {
+        const finalPts = Math.floor(pts);
+        const aceCoinMult = 1 + (hasAce("as_moedas") ? 0.25 : 0);
+        const awardedCoins = Math.round(runCoins * aceCoinMult);
+
+        state.moedas += awardedCoins;
+        state.stats.totalCoinsEarned += awardedCoins;
+        state.stats.runsPlayed += 1;
+        if (finalPts > state.recorde) {
+          state.recorde = finalPts;
+        }
+
+        syncReachedMetas();
+        checkAchievements();
+        saveGame();
+
+        pts = finalPts;
+        runCoins = awardedCoins;
+        tela = "GAMEOVER";
+      }
+
+      function continueFromDeath() {
+        ensureAudio();
+        if (tela !== "GAMEOVER") return;
+        if (continuedThisRun) {
+          setBanner("Você já usou Continuar nesta corrida!");
+          return;
+        }
+        if (state.moedas < CONTINUE_COST) {
+          setBanner("Saldo insuficiente! Precisa de " + CONTINUE_COST + " moedas.");
+          return;
+        }
+
+        const ch = getCharById(state.selectedChar);
+        state.moedas -= CONTINUE_COST;
+        continuedThisRun = true;
+
+        vidas = 1;
+        jumpsLeft = ch.pulos;
+        invulnTimer = 95;
+        player.x = 68;
+        player.y = groundY - player.h;
+        player.vy = 0;
+
+        obs = obs.filter(function (o) { return o.x > player.x + 125; });
+        buracos = buracos.filter(function (b) { return b.x > player.x + 125; });
+
+        addBurst(player.x + player.w * 0.5, player.y + player.h * 0.5, "#4ade80", 16);
+        addFloatText(player.x - 14, player.y - 16, "CONTINUOU!", "#4ade80");
+        setBanner("Corrida retomada (-500 moedas)!");
+        saveGame();
+        sfx.power();
+        tela = "JOGO";
+      }
+
+      // =========================================================
+      // PULO, DANO E POWER-UPS (INCLUINDO TEMPO MAIS DEVAGAR)
+      // =========================================================
+      function doJump() {
+        if (tela !== "JOGO") return;
+        const ch = getCharById(state.selectedChar);
+        if (jumpsLeft > 0) {
+          const boost = molaT > 0 ? 1.28 : 1.0;
+          player.vy = -10.8 * boost;
+          jumpsLeft--;
+          sfx.jump();
+          addBurst(player.x + player.w * 0.5, player.y + player.h, molaT > 0 ? "#38bdf8" : ch.cor, 7);
+          if (molaT > 0) {
+            addFloatText(player.x, player.y - 10, "SUPER PULO!", "#38bdf8");
+          }
+        }
+      }
+
+      function takeDamage(fromHole) {
+        if (skateT > 0) {
+          if (fromHole) {
+            player.y = groundY - player.h - 14;
+            player.vy = -6.5;
+          }
+          return;
+        }
+
+        if (escudoAtivo) {
+          escudoAtivo = false;
+          invulnTimer = 55;
+          state.stats.shieldBlocks += 1;
+          sfx.shield();
+          addBurst(player.x + player.w * 0.5, player.y + player.h * 0.5, "#60a5fa", 14);
+          addFloatText(player.x - 8, player.y - 12, "ESCUDO!", "#60a5fa");
+          if (fromHole) {
+            player.y = groundY - player.h - 26;
+            player.vy = -8.6;
+            jumpsLeft = Math.max(1, jumpsLeft);
+          }
+          checkAchievements();
+          saveGame();
+          return;
+        }
+
+        if (invulnTimer > 0) return;
+
+        vidas--;
+        tookDamageInRun = true;
+        invulnTimer = 70;
+        sfx.hit();
+        addBurst(player.x + player.w * 0.5, player.y + player.h * 0.5, "#ef4444", 16);
+        addFloatText(player.x, player.y - 12, "-1 VIDA", "#f87171");
+
+        if (vidas <= 0) {
+          finishRun();
+        } else if (fromHole) {
+          player.y = groundY - player.h - 32;
+          player.vy = -9.4;
+          jumpsLeft = Math.max(1, jumpsLeft);
+        }
+      }
+
+      function activatePowerup(kind) {
+        const ch = getCharById(state.selectedChar);
+        const magoMult = ch.id === "mago" ? 1.35 : 1.0;
+        sfx.power();
+
+        if (kind === "skate") {
+          const aceSkate = hasAce("as_skate") ? 1.3 : 1.0;
+          skateT = Math.round(350 * magoMult * aceSkate);
+          state.stats.skateUses += 1;
+          addFloatText(player.x - 10, player.y - 14, "SKATE 1.5x!", "#fb923c");
+        } else if (kind === "ima") {
+          imaT = Math.round(380 * magoMult);
+          addFloatText(player.x - 6, player.y - 14, "ÍMÃ!", "#c084fc");
+        } else if (kind === "febre") {
+          const aceFebre = hasAce("as_febre") ? 1.35 : 1.0;
+          febreT = Math.round(320 * magoMult * aceFebre);
+          state.stats.feverUses += 1;
+          addFloatText(player.x - 14, player.y - 14, "FEBRE 2x!", "#facc15");
+        } else if (kind === "escudo") {
+          escudoAtivo = true;
+          addFloatText(player.x - 12, player.y - 14, "ESCUDO!", "#60a5fa");
+        } else if (kind === "mola") {
+          molaT = Math.round(320 * magoMult);
+          lentoT = Math.round(280 * magoMult);
+          addFloatText(player.x - 14, player.y - 14, "MOLA + LENTO!", "#38bdf8");
+        } else if (kind === "vida") {
+          if (vidas < maxVidas) {
+            vidas++;
+            addFloatText(player.x - 8, player.y - 14, "+1 VIDA!", "#4ade80");
+          } else {
+            pts += 150;
+            addFloatText(player.x - 10, player.y - 14, "+150 PTS!", "#fde047");
+          }
+        }
+
+        addBurst(player.x + 16, player.y + 16, "#fde047", 12);
+        checkAchievements();
+        saveGame();
+      }
+
+      // =========================================================
+      // ATUALIZAÇÃO DA CORRIDA (COM ESCALA DE TEMPO MAIS DEVAGAR)
+      // =========================================================
+      function updateGame() {
+        frame++;
+        if (skateT > 0) skateT--;
+        if (imaT > 0) imaT--;
+        if (febreT > 0) febreT--;
+        if (molaT > 0) molaT--;
+        if (lentoT > 0) lentoT--;
+        if (invulnTimer > 0) invulnTimer--;
+
+        const ch = getCharById(state.selectedChar);
+        const isAirborne = player.y + player.h < groundY - 2;
+        const astroSlow = ch.id === "astronauta" && isAirborne ? 0.72 : 1.0;
+        const slowFactor = (lentoT > 0 ? 0.62 : 1.0) * astroSlow;
+
+        const vBase = 0.82 + Math.min(0.78, pts / 4500);
+        const vMult = vBase * (skateT > 0 ? 1.32 : 1.0) * slowFactor;
+
+        if (skateT > 0 && imaT > 0) {
+          pts += 0.35;
+          state.stats.comboFrames += 1;
+          if (frame % 45 === 0) {
+            addFloatText(player.x, player.y - 22, "COMBO +", "#f472b6");
+          }
+        }
+
+        let pMult = 1.0;
+        if (hasAce("as_pontos")) pMult += 0.15;
+        if (ch.id === "farao") pMult += 0.25;
+        if (ch.id === "dragao") pMult += 0.30;
+        if (febreT > 0) pMult *= 2.0;
+
+        pts += 0.28 * vBase * (skateT > 0 ? 1.32 : 1.0) * pMult;
+        syncReachedMetas();
+
+        let overHole = false;
+        for (const b of buracos) {
+          if (player.x + player.w - 6 > b.x && player.x + 6 < b.x + b.w) {
+            overHole = true;
+            break;
+          }
+        }
+
+        const grav = (ch.id === "astronauta" ? 0.42 : 0.56) * (lentoT > 0 ? 0.75 : 1.0);
+        player.vy += grav;
+        player.y += player.vy * (lentoT > 0 ? 0.82 : 1.0);
+
+        let onPlatform = false;
+        for (const pf of plataformas) {
+          pf.x -= 3.7 * vMult;
+          if (
+            player.vy >= 0 &&
+            player.y + player.h >= pf.y &&
+            player.y + player.h <= pf.y + pf.h + 10 &&
+            player.x + player.w - 4 > pf.x &&
+            player.x + 4 < pf.x + pf.w
+          ) {
+            player.y = pf.y - player.h;
+            player.vy = 0;
+            jumpsLeft = ch.pulos;
+            onPlatform = true;
+          }
+        }
+        plataformas = plataformas.filter(function (pf) { return pf.x + pf.w > -40; });
+
+        if (!onPlatform && player.y + player.h >= groundY) {
+          if (overHole && skateT <= 0) {
+            takeDamage(true);
+          } else {
+            player.y = groundY - player.h;
+            player.vy = 0;
+            jumpsLeft = ch.pulos;
+          }
+        }
+
+        const holeInterval = Math.max(115, Math.floor(175 / vBase));
+        if (frame > 75 && frame % holeInterval === 0 && !overHole) {
+          const bw = 54 + Math.random() * 34;
+          buracos.push({ x: W + 10, w: bw });
+        }
+
+        for (let bi = buracos.length - 1; bi >= 0; bi--) {
+          buracos[bi].x -= 3.9 * vMult;
+          if (buracos[bi].x + buracos[bi].w < -30) {
+            buracos.splice(bi, 1);
+            pts += (skateT > 0 ? 22 : 14) * pMult;
+          }
+        }
+
+        const obsInterval = Math.max(58, Math.floor(92 / vBase));
+        if (frame % obsInterval === 0) {
+          const rt = Math.random();
+          if (rt < 0.32) {
+            const altVoo = 316 + Math.random() * 64;
+            obs.push({
+              t: "aereo",
+              x: W + 10,
+              y: altVoo,
+              by: altVoo,
+              w: 28,
+              h: 20,
+              ph: Math.random() * Math.PI * 2
+            });
+          } else {
+            const ow = 22 + Math.random() * 16;
+            const oh = 28 + Math.random() * 32;
+            const tipoObs = pts > 320 && rt < 0.65 ? "movel" : "chao";
+            obs.push({
+              t: tipoObs,
+              x: W + 10,
+              y: groundY - oh,
+              w: ow,
+              h: oh,
+              dir: -1
+            });
+          }
+        }
+
+        for (let j = obs.length - 1; j >= 0; j--) {
+          const o = obs[j];
+          o.x -= (o.t === "movel" ? 4.2 : 3.85) * vMult;
+          if (o.t === "aereo") {
+            o.y = o.by + Math.sin(frame * 0.14 * slowFactor + o.ph) * 28;
+          } else if (o.t === "movel") {
+            o.y += o.dir * 1.5 * slowFactor;
+            if (o.y < groundY - 105) o.dir = 1;
+            if (o.y + o.h > groundY) o.dir = -1;
+          }
+
+          const hit =
+            player.x + player.w - 5 > o.x &&
+            player.x + 5 < o.x + o.w &&
+            player.y + player.h - 4 > o.y &&
+            player.y + 4 < o.y + o.h;
+
+          if (hit) {
+            if (skateT > 0) {
+              addBurst(o.x + o.w * 0.5, o.y + o.h * 0.5, "#fb923c", 10);
+              addFloatText(o.x, o.y - 6, "+25", "#fb923c");
+              pts += 25 * pMult;
+              obs.splice(j, 1);
+              continue;
+            } else {
+              takeDamage(false);
+              obs.splice(j, 1);
+              continue;
+            }
+          }
+
+          if (o.x + o.w < -25) {
+            obs.splice(j, 1);
+            pts += (skateT > 0 ? 18 : 12) * pMult;
+          }
+        }
+
+        if (frame % 145 === 60) {
+          const pw = 84;
+          const py = 335 + Math.random() * 45;
+          plataformas.push({ x: W + 15, y: py, w: pw, h: 12 });
+          for (let m = 0; m < 3; m++) {
+            moedas.push({
+              x: W + 28 + m * 22,
+              y: py - 24 - (m === 1 ? 14 : 0),
+              r: 8
+            });
+          }
+        }
+
+        if (frame % 26 === 0) {
+          const highCoin = Math.random() < 0.45;
+          moedas.push({
+            x: W + 12,
+            y: highCoin ? groundY - 68 - Math.random() * 45 : groundY - 18,
+            r: 8
+          });
+        }
+
+        const pxCenter = player.x + player.w * 0.5;
+        const pyCenter = player.y + player.h * 0.5;
+
+        let charCoinRate = 1.0;
+        if (ch.id === "cyber") charCoinRate += 0.2;
+        if (ch.id === "farao") charCoinRate += 0.15;
+
+        for (let ci = moedas.length - 1; ci >= 0; ci--) {
+          const c = moedas[ci];
+          c.x -= 3.8 * vMult;
+
+          if (imaT > 0) {
+            const dx = pxCenter - c.x;
+            const dy = pyCenter - c.y;
+            const dist = Math.hypot(dx, dy);
+            if (dist < 190 && dist > 1) {
+              c.x += (dx / dist) * 8.2 * (lentoT > 0 ? 0.85 : 1.0);
+              c.y += (dy / dist) * 8.2 * (lentoT > 0 ? 0.85 : 1.0);
+            }
+          }
+
+          if (Math.hypot(pxCenter - c.x, pyCenter - c.y) < c.r + 18) {
+            const baseVal = febreT > 0 ? 2 : 1;
+            coinFraction += baseVal * charCoinRate;
+            const gainedNow = Math.max(1, Math.floor(coinFraction));
+            coinFraction -= gainedNow;
+
+            runCoins += gainedNow;
+            if (imaT > 0) {
+              state.stats.magnetCoins += gainedNow;
+            }
+            pts += 16 * gainedNow * pMult;
+            sfx.coin();
+            addBurst(c.x, c.y, febreT > 0 ? "#facc15" : "#fbbf24", 6);
+            addFloatText(c.x - 6, c.y - 8, "+" + gainedNow, febreT > 0 ? "#facc15" : "#fde047");
+
+            if (ch.id === "vampiro") {
+              vampCoinCounter += gainedNow;
+              if (vampCoinCounter >= 80) {
+                vampCoinCounter -= 80;
+                if (vidas < maxVidas) {
+                  vidas++;
+                  addFloatText(player.x, player.y - 24, "VAMPIRO +1 VIDA!", "#fda4af");
+                }
+              }
+            }
+
+            moedas.splice(ci, 1);
+            continue;
+          }
+
+          if (c.x < -20) {
+            moedas.splice(ci, 1);
+          }
+        }
+
+        if (frame % 115 === 30) {
+          const pool = ["skate", "ima", "febre", "escudo", "mola", "vida"];
+          const chosen = pool[Math.floor(Math.random() * pool.length)];
+          powerups.push({
+            kind: chosen,
+            x: W + 15,
+            y: groundY - 56 - Math.random() * 65,
+            r: 13
+          });
+        }
+
+        if (frame % 150 === 75) {
+          powerups.push({
+            kind: "ima",
+            x: W + 15,
+            y: groundY - 62 - Math.random() * 55,
+            r: 13
+          });
+        }
+
+        for (let pi = powerups.length - 1; pi >= 0; pi--) {
+          const p = powerups[pi];
+          p.x -= 3.5 * vMult;
+          p.y += Math.sin(frame * 0.08 * slowFactor + pi) * 0.8;
+
+          if (Math.hypot(pxCenter - p.x, pyCenter - p.y) < p.r + 18) {
+            activatePowerup(p.kind);
+            powerups.splice(pi, 1);
+            continue;
+          }
+          if (p.x < -25) {
+            powerups.splice(pi, 1);
+          }
+        }
+
+        for (let i = particulas.length - 1; i >= 0; i--) {
+          const pt = particulas[i];
+          pt.x += pt.vx * slowFactor;
+          pt.y += pt.vy * slowFactor;
+          pt.vy += 0.12 * slowFactor;
+          pt.life--;
+          if (pt.life <= 0) particulas.splice(i, 1);
+        }
+
+        for (let i = textos.length - 1; i >= 0; i--) {
+          const tx = textos[i];
+          tx.y -= 1.1 * slowFactor;
+          tx.life--;
+          if (tx.life <= 0) textos.splice(i, 1);
+        }
+
+        if (feedbackTimer > 0) feedbackTimer--;
+      }
+
+      // =========================================================
+      // DESENHO DO CENÁRIO, ESPINHOS, PERSONAGENS E POWER-UPS
+      // =========================================================
+      function getThemeColors() {
+        if (febreT > 0) {
+          return { skyTop: "#78350f", skyBot: "#f59e0b", ground: "#b45309", accent: "#fde047" };
+        }
+        if (lentoT > 0) {
+          return { skyTop: "#0c4a6e", skyBot: "#0369a1", ground: "#075985", accent: "#7dd3fc" };
+        }
+        const ciclo = Math.floor(pts / 650) % 4;
+        if (ciclo === 0) return { skyTop: "#0f172a", skyBot: "#1e293b", ground: "#334155", accent: "#38bdf8" };
+        if (ciclo === 1) return { skyTop: "#1e1b4b", skyBot: "#4c1d95", ground: "#312e81", accent: "#c084fc" };
+        if (ciclo === 2) return { skyTop: "#064e3b", skyBot: "#0f766e", ground: "#134e4a", accent: "#34d399" };
+        return { skyTop: "#451a03", skyBot: "#9a3412", ground: "#7c2d12", accent: "#fb923c" };
+      }
+
+      function drawBackground() {
+        const th = getThemeColors();
+        const grad = ctx.createLinearGradient(0, 0, 0, groundY);
+        grad.addColorStop(0, th.skyTop);
+        grad.addColorStop(1, th.skyBot);
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, W, groundY);
+
+        ctx.strokeStyle = th.accent;
+        ctx.globalAlpha = 0.14;
+        ctx.lineWidth = 1;
+        for (let i = 0; i < 6; i++) {
+          const bx = (((W - ((frame * 1.4 + i * 75) % (W + 80))) + (W + 80)) % (W + 80)) - 40;
+          ctx.beginPath();
+          ctx.moveTo(bx, 70 + (i % 3) * 55);
+          ctx.lineTo(bx + 36, 70 + (i % 3) * 55);
+          ctx.stroke();
+        }
+        ctx.globalAlpha = 1;
+
+        ctx.fillStyle = th.ground;
+        ctx.fillRect(0, groundY, W, H - groundY);
+
+        ctx.fillStyle = th.accent;
+        ctx.fillRect(0, groundY, W, 3);
+
+        for (const b of buracos) {
+          ctx.fillStyle = "#050811";
+          ctx.fillRect(b.x, groundY - 1, b.w, H - groundY + 2);
+
+          ctx.fillStyle = "#ef4444";
+          ctx.fillRect(b.x, groundY, 4, 5);
+          ctx.fillRect(b.x + b.w - 4, groundY, 4, 5);
+        }
+      }
+
+      function drawSpikedHazard(c, o) {
+        c.save();
+
+        const baseColor = o.t === "aereo" ? "#e11d48" : o.t === "movel" ? "#9333ea" : "#dc2626";
+        const spikeColor = "#f8fafc";
+        const spikeEdge = "#cbd5e1";
+
+        c.fillStyle = baseColor;
+        roundRectPath(c, o.x, o.y, o.w, o.h, 5);
+        c.fill();
+
+        const topCount = Math.max(2, Math.floor(o.w / 8));
+        const topStep = o.w / topCount;
+        c.fillStyle = spikeColor;
+        c.strokeStyle = spikeEdge;
+        c.lineWidth = 1;
+        for (let i = 0; i < topCount; i++) {
+          const sx = o.x + i * topStep;
+          const midX = sx + topStep * 0.5;
+          const tipY = o.y - 7;
+          c.beginPath();
+          c.moveTo(sx + 1, o.y + 1);
+          c.lineTo(midX, tipY);
+          c.lineTo(sx + topStep - 1, o.y + 1);
+          c.closePath();
+          c.fill();
+          c.stroke();
+        }
+
+        if (o.t === "aereo" || o.t === "movel") {
+          const sideCount = Math.max(2, Math.floor(o.h / 9));
+          const sideStep = o.h / sideCount;
+          for (let s = 0; s < sideCount; s++) {
+            const sy = o.y + s * sideStep;
+            const midY = sy + sideStep * 0.5;
+
+            c.beginPath();
+            c.moveTo(o.x + 1, sy + 1);
+            c.lineTo(o.x - 6, midY);
+            c.lineTo(o.x + 1, sy + sideStep - 1);
+            c.closePath();
+            c.fill();
+            c.stroke();
+
+            c.beginPath();
+            c.moveTo(o.x + o.w - 1, sy + 1);
+            c.lineTo(o.x + o.w + 6, midY);
+            c.lineTo(o.x + o.w - 1, sy + sideStep - 1);
+            c.closePath();
+            c.fill();
+            c.stroke();
+          }
+        }
+
+        if (o.t === "aereo") {
+          for (let i = 0; i < topCount; i++) {
+            const sx = o.x + i * topStep;
+            const midX = sx + topStep * 0.5;
+            const botY = o.y + o.h;
+            c.beginPath();
+            c.moveTo(sx + 1, botY - 1);
+            c.lineTo(midX, botY + 6);
+            c.lineTo(sx + topStep - 1, botY - 1);
+            c.closePath();
+            c.fill();
+            c.stroke();
+          }
+        }
+
+        c.restore();
+      }
+
+      function drawCat(c, id, x, y, w, h, animTime, runState) {
+        const ch = getCharById(id);
+        const st = runState || {};
+        const blink = (st.invulnTimer || 0) > 0 && Math.floor((animTime || 0) / 4) % 2 === 0;
+        const tailSwing = Math.sin((animTime || 0) * 0.22) * 4;
+
+        c.save();
+        if (blink) {
+          c.globalAlpha = 0.55;
+        }
+
+        c.strokeStyle = ch.cor;
+        c.lineWidth = 4;
+        c.lineCap = "round";
+        c.beginPath();
+        c.moveTo(x + 4, y + h - 9);
+        c.quadraticCurveTo(x - 8, y + h - 16 + tailSwing, x - 5, y + h - 24 + tailSwing);
+        c.stroke();
+
+        c.fillStyle = ch.cor;
+        roundRectPath(c, x + 3, y + 6, w - 6, h - 6, 8);
+        c.fill();
+
+        c.fillStyle = ch.detalhe;
+        roundRectPath(c, x + 9, y + 14, w - 18, h - 17, 5);
+        c.fill();
+
+        if (ch.id === "classico") {
+          c.fillStyle = "#78350f";
+          c.fillRect(x + 3, y + h - 11, w - 6, 5);
+          c.fillStyle = "#facc15";
+          c.fillRect(x + w * 0.5 - 3.5, y + h - 12, 7, 7);
+          c.fillStyle = "#78350f";
+          c.fillRect(x + w * 0.5 - 1.5, y + h - 10, 3, 3);
+        } else if (ch.id === "ninja") {
+          c.fillStyle = "#0f172a";
+          roundRectPath(c, x + 4, y + 14, w - 8, 6, 2);
+          c.fill();
+
+          c.fillStyle = ch.detalhe;
+          c.fillRect(x + 3, y + 9, w - 6, 3.5);
+
+          c.beginPath();
+          c.moveTo(x + 3, y + 10);
+          c.lineTo(x - 7, y + 7 + tailSwing * 0.4);
+          c.lineTo(x - 5, y + 12 + tailSwing * 0.4);
+          c.closePath();
+          c.fill();
+
+          c.beginPath();
+          c.moveTo(x + 3, y + 11.5);
+          c.lineTo(x - 6, y + 14 + tailSwing * 0.4);
+          c.lineTo(x - 4, y + 17 + tailSwing * 0.4);
+          c.closePath();
+          c.fill();
+        } else if (ch.id === "cyber") {
+          c.fillStyle = "#0f172a";
+          roundRectPath(c, x + 4, y + 18, w - 8, h - 18, 4);
+          c.fill();
+
+          c.strokeStyle = ch.detalhe;
+          c.lineWidth = 1.4;
+          c.strokeRect(x + 4.5, y + 18.5, w - 9, h - 19.5);
+
+          c.fillStyle = ch.detalhe;
+          roundRectPath(c, x + 8, y + 10.5, 16, 5, 2);
+          c.fill();
+        } else if (ch.id === "mago") {
+          c.fillStyle = ch.cor;
+          c.beginPath();
+          c.moveTo(x + 3, y + 9);
+          c.lineTo(x + w * 0.5, y - 9);
+          c.lineTo(x + w - 3, y + 9);
+          c.closePath();
+          c.fill();
+
+          c.fillStyle = ch.detalhe;
+          c.fillRect(x + 3.5, y + 6.5, w - 7, 2.5);
+
+          c.fillStyle = "#6d28d9";
+          roundRectPath(c, x + 3.5, y + 19, w - 7, h - 19, 4);
+          c.fill();
+        } else if (ch.id === "rei") {
+          c.fillStyle = ch.detalhe;
+          c.beginPath();
+          c.moveTo(x + 6, y + 8);
+          c.lineTo(x + 7, y);
+          c.lineTo(x + 12.5, y + 4.5);
+          c.lineTo(x + 16, y - 1);
+          c.lineTo(x + 19.5, y + 4.5);
+          c.lineTo(x + 25, y);
+          c.lineTo(x + 26, y + 8);
+          c.closePath();
+          c.fill();
+
+          c.fillStyle = "#b91c1c";
+          roundRectPath(c, x + 3.5, y + 19, w - 7, h - 19, 4);
+          c.fill();
+
+          c.fillStyle = ch.detalhe;
+          c.fillRect(x + 4, y + 19, w - 8, 2.5);
+        } else if (ch.id === "farao") {
+          c.fillStyle = ch.detalhe;
+          c.fillRect(x + 1.5, y + 9, 3.5, 14);
+          c.fillRect(x + w - 5, y + 9, 3.5, 14);
+
+          c.fillStyle = "#14b8a6";
+          roundRectPath(c, x + 3.5, y + 19, w - 7, 6, 2);
+          c.fill();
+        } else if (ch.id === "vampiro") {
+          c.fillStyle = "#1e1b4b";
+          c.beginPath();
+          c.moveTo(x + 3, y + 18);
+          c.lineTo(x - 6, y + h);
+          c.lineTo(x + w + 6, y + h);
+          c.lineTo(x + w - 3, y + 18);
+          c.closePath();
+          c.fill();
+
+          c.fillStyle = "#dc2626";
+          c.beginPath();
+          c.moveTo(x + 2, y + 19);
+          c.lineTo(x - 2, y + 14);
+          c.lineTo(x + 7, y + 18);
+          c.moveTo(x + w - 2, y + 19);
+          c.lineTo(x + w + 2, y + 14);
+          c.lineTo(x + w - 7, y + 18);
+          c.closePath();
+          c.fill();
+        } else if (ch.id === "astronauta") {
+          c.fillStyle = "#64748b";
+          roundRectPath(c, x - 4, y + 17, 7, 13, 2);
+          c.fill();
+
+          c.strokeStyle = "#7dd3fc";
+          c.lineWidth = 1.8;
+          c.beginPath();
+          c.arc(x + w * 0.5, y + 14, 13.5, 0, Math.PI * 2);
+          c.stroke();
+        } else if (ch.id === "dragao") {
+          c.fillStyle = ch.detalhe;
+          c.beginPath();
+          c.moveTo(x + 7, y + 8);
+          c.lineTo(x + 4, y);
+          c.lineTo(x + 12, y + 8);
+          c.moveTo(x + 20, y + 8);
+          c.lineTo(x + 25, y);
+          c.lineTo(x + 26, y + 8);
+          c.closePath();
+          c.fill();
+
+          c.fillStyle = "#9a3412";
+          roundRectPath(c, x + 3.5, y + 19, w - 7, h - 19, 4);
+          c.fill();
+        }
+
+        c.fillStyle = ch.cor;
+        c.beginPath();
+        c.moveTo(x + 5, y + 9);
+        c.lineTo(x + 8, y);
+        c.lineTo(x + 13, y + 9);
+        c.closePath();
+        c.fill();
+
+        c.beginPath();
+        c.moveTo(x + w - 14, y + 9);
+        c.lineTo(x + w - 9, y);
+        c.lineTo(x + w - 5, y + 10);
+        c.closePath();
+        c.fill();
+
+        if (ch.id !== "cyber") {
+          c.fillStyle = "#ffffff";
+          c.fillRect(x + 10, y + 12, 4, 4);
+          c.fillRect(x + 19, y + 12, 4, 4);
+          c.fillStyle = "#0f172a";
+          c.fillRect(x + 12, y + 13, 2, 2);
+          c.fillRect(x + 21, y + 13, 2, 2);
+        }
+
+        if (st.escudoAtivo) {
+          c.strokeStyle = "rgba(96, 165, 250, 0.85)";
+          c.lineWidth = 2.5;
+          c.beginPath();
+          c.arc(x + w * 0.5, y + h * 0.5, 22, 0, Math.PI * 2);
+          c.stroke();
+        }
+
+        if (st.imaT > 0) {
+          c.strokeStyle = "rgba(192, 132, 252, 0.65)";
+          c.lineWidth = 1.6;
+          c.beginPath();
+          c.arc(x + w * 0.5, y + h * 0.5, 26 + Math.sin((animTime || 0) * 0.25) * 3, 0, Math.PI * 2);
+          c.stroke();
+        }
+
+        if (st.skateT > 0) {
+          c.fillStyle = "#f97316";
+          roundRectPath(c, x - 2, y + h - 1, w + 4, 4, 2);
+          c.fill();
+          c.fillStyle = "#f8fafc";
+          c.beginPath();
+          c.arc(x + 5, y + h + 4.5, 2.2, 0, Math.PI * 2);
+          c.arc(x + w - 5, y + h + 4.5, 2.2, 0, Math.PI * 2);
+          c.fill();
+        }
+
+        c.restore();
+      }
+
+      function drawPowerupShape(c, kind, x, y) {
+        c.save();
+        c.translate(x, y);
+
+        if (kind === "ima") {
+          c.fillStyle = "#ef4444";
+          roundRectPath(c, -10, -6, 6, 12, 2);
+          c.fill();
+          c.fillStyle = "#3b82f6";
+          roundRectPath(c, 4, -6, 6, 12, 2);
+          c.fill();
+          c.strokeStyle = "#e2e8f0";
+          c.lineWidth = 6;
+          c.beginPath();
+          c.arc(0, 4, 7, 0, Math.PI);
+          c.stroke();
+        } else if (kind === "skate") {
+          c.rotate(-0.18);
+          c.fillStyle = "#f97316";
+          roundRectPath(c, -14, -3, 28, 5, 2.5);
+          c.fill();
+          c.fillStyle = "#f8fafc";
+          c.beginPath();
+          c.arc(-8, 4.5, 2.4, 0, Math.PI * 2);
+          c.arc(8, 4.5, 2.4, 0, Math.PI * 2);
+          c.fill();
+        } else if (kind === "escudo") {
+          c.fillStyle = "#2563eb";
+          c.beginPath();
+          c.moveTo(0, -11);
+          c.lineTo(10, -7);
+          c.lineTo(8, 3);
+          c.quadraticCurveTo(5, 10, 0, 12);
+          c.quadraticCurveTo(-5, 10, -8, 3);
+          c.lineTo(-10, -7);
+          c.closePath();
+          c.fill();
+          c.strokeStyle = "#93c5fd";
+          c.lineWidth = 2;
+          c.stroke();
+        } else if (kind === "febre") {
+          c.fillStyle = "#f59e0b";
+          c.beginPath();
+          c.arc(0, 0, 11, 0, Math.PI * 2);
+          c.fill();
+          c.fillStyle = "#fef08a";
+          c.font = "900 9px Inter, sans-serif";
+          c.textAlign = "center";
+          c.textBaseline = "middle";
+          c.fillText("2X", 0, 0.5);
+        } else if (kind === "mola") {
+          c.strokeStyle = "#38bdf8";
+          c.lineWidth = 2.4;
+          c.beginPath();
+          c.moveTo(-6, -8);
+          c.lineTo(6, -4);
+          c.lineTo(-6, 0);
+          c.lineTo(6, 4);
+          c.lineTo(-6, 8);
+          c.stroke();
+        } else if (kind === "vida") {
+          c.fillStyle = "#ef4444";
+          c.beginPath();
+          c.moveTo(0, 10);
+          c.bezierCurveTo(-13, 2, -12, -9, -5, -9);
+          c.bezierCurveTo(-1.5, -9, 0, -6, 0, -5);
+          c.bezierCurveTo(0, -6, 1.5, -9, 5, -9);
+          c.bezierCurveTo(12, -9, 13, 2, 0, 10);
+          c.closePath();
+          c.fill();
+        }
+
+        c.restore();
+      }
+
+      function drawGameplay() {
+        drawBackground();
+
+        for (const pf of plataformas) {
+          ctx.fillStyle = "#475569";
+          roundRectPath(ctx, pf.x, pf.y, pf.w, pf.h, 5);
+          ctx.fill();
+          ctx.fillStyle = "#94a3b8";
+          ctx.fillRect(pf.x + 2, pf.y, pf.w - 4, 3);
+        }
+
+        for (const c of moedas) {
+          ctx.fillStyle = febreT > 0 ? "#facc15" : "#fbbf24";
+          ctx.beginPath();
+          ctx.arc(c.x, c.y, c.r, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.strokeStyle = "#fef08a";
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+        }
+
+        for (const p of powerups) {
+          drawPowerupShape(ctx, p.kind, p.x, p.y);
+        }
+
+        for (const o of obs) {
+          drawSpikedHazard(ctx, o);
+        }
+
+        drawCat(ctx, state.selectedChar, player.x, player.y, player.w, player.h, frame, {
+          invulnTimer: invulnTimer,
+          escudoAtivo: escudoAtivo,
+          imaT: imaT,
+          skateT: skateT
+        });
+
+        for (const pt of particulas) {
+          ctx.globalAlpha = Math.max(0, pt.life / 35);
+          ctx.fillStyle = pt.color;
+          ctx.beginPath();
+          ctx.arc(pt.x, pt.y, pt.r, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+
+        for (const tx of textos) {
+          ctx.globalAlpha = Math.max(0, tx.life / 40);
+          ctx.fillStyle = tx.color;
+          ctx.font = "800 12px Inter, sans-serif";
+          ctx.textAlign = "center";
+          ctx.fillText(tx.txt, tx.x + 14, tx.y);
+        }
+        ctx.globalAlpha = 1;
+
+        // HUD superior
+        ctx.fillStyle = "rgba(15, 23, 42, 0.78)";
+        roundRectPath(ctx, 10, 10, 212, 34, 10);
+        ctx.fill();
+
+        ctx.fillStyle = "#f8fafc";
+        ctx.font = "800 13px Inter, sans-serif";
+        ctx.textAlign = "left";
+        ctx.fillText("PTS: " + Math.floor(pts), 18, 25);
+
+        ctx.fillStyle = "#fbbf24";
+        ctx.font = "700 11px Inter, sans-serif";
+        ctx.fillText("MOEDAS: " + runCoins + "   VIDAS: " + vidas + "/" + maxVidas, 18, 39);
+
+        addHitBox(274, 10, 36, 34, function () {
+          tela = "PAUSA";
+        });
+        ctx.fillStyle = "rgba(15, 23, 42, 0.84)";
+        roundRectPath(ctx, 274, 10, 36, 34, 9);
+        ctx.fill();
+        ctx.fillStyle = "#f8fafc";
+        ctx.font = "800 12px Inter, sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText("II", 292, 31);
+
+        addHitBox(314, 10, 36, 34, function () {
+          state.soundOn = !state.soundOn;
+          saveGame();
+        });
+        ctx.fillStyle = "rgba(15, 23, 42, 0.84)";
+        roundRectPath(ctx, 314, 10, 36, 34, 9);
+        ctx.fill();
+        ctx.fillStyle = state.soundOn ? "#4ade80" : "#94a3b8";
+        ctx.font = "800 10px Inter, sans-serif";
+        ctx.fillText(state.soundOn ? "SOM" : "MUTE", 332, 31);
+
+        let badgeY = 54;
+        const timers = [
+          { t: skateT, label: "SKATE", color: "#fb923c" },
+          { t: imaT, label: "ÍMÃ", color: "#c084fc" },
+          { t: febreT, label: "FEBRE 2x", color: "#facc15" },
+          { t: molaT, label: "MOLA", color: "#38bdf8" },
+          { t: lentoT, label: "LENTO", color: "#7dd3fc" }
+        ];
+        for (const item of timers) {
+          if (item.t > 0) {
+            ctx.fillStyle = "rgba(15, 23, 42, 0.8)";
+            roundRectPath(ctx, 10, badgeY, 106, 18, 6);
+            ctx.fill();
+            ctx.fillStyle = item.color;
+            ctx.font = "800 10px Inter, sans-serif";
+            ctx.textAlign = "left";
+            ctx.fillText(item.label + " " + Math.ceil(item.t / 60) + "s", 16, badgeY + 12);
+            badgeY += 22;
+          }
+        }
+
+        if (feedbackTimer > 0 && feedbackMsg) {
+          ctx.fillStyle = "rgba(245, 158, 11, 0.94)";
+          roundRectPath(ctx, 30, 82, W - 60, 26, 8);
+          ctx.fill();
+          ctx.fillStyle = "#0f172a";
+          ctx.font = "800 11px Inter, sans-serif";
+          ctx.textAlign = "center";
+          ctx.fillText(feedbackMsg, W * 0.5, 99);
+        }
+      }
+
+      // =========================================================
+      // TELAS DE MENU, LOJA (2 PÁGINAS), ASES, CONQUISTAS, PAUSA E GAME OVER
+      // =========================================================
+      function drawMenu() {
+        drawBackground();
+        ctx.fillStyle = "rgba(9, 13, 22, 0.78)";
+        ctx.fillRect(0, 0, W, H);
+
+        addHitBox(14, 14, 58, 26, function () {
+          state.soundOn = !state.soundOn;
+          saveGame();
+        });
+        drawBtn(14, 14, 58, 26, state.soundOn ? "SOM: ON" : "MUTE", state.soundOn ? "#1e293b" : "#334155", "#f8fafc", 9.5);
+
+        const resetLabel = confirmResetStep === 0 ? "RESETAR" : "CONFIRMAR?";
+        addHitBox(262, 14, 84, 26, function () {
+          if (confirmResetStep === 0) {
+            confirmResetStep = 1;
+            setBanner("Toque novamente em CONFIRMAR? para resetar tudo.");
+          } else {
+            const fresh = defaultSave();
+            Object.assign(state, fresh);
+            state.stats = { ...fresh.stats };
+            saveGame();
+            confirmResetStep = 0;
+            shopPage = 0;
+            achPage = 0;
+            setBanner("Progresso resetado com sucesso!");
+          }
+        });
+        drawBtn(262, 14, 84, 26, resetLabel, confirmResetStep > 0 ? "#dc2626" : "#334155", "#ffffff", 9.5);
+
+        ctx.fillStyle = "#fbbf24";
+        ctx.font = "900 28px Inter, sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText("EL GATO", W * 0.5, 82);
+
+        ctx.fillStyle = "#e2e8f0";
+        ctx.font = "700 13px Inter, sans-serif";
+        ctx.fillText("CORRIDA INFINITA", W * 0.5, 102);
+
+        ctx.fillStyle = "rgba(30, 41, 59, 0.92)";
+        roundRectPath(ctx, 24, 118, W - 48, 64, 14);
+        ctx.fill();
+
+        ctx.fillStyle = "#fbbf24";
+        ctx.font = "800 14px Inter, sans-serif";
+        ctx.textAlign = "left";
+        ctx.fillText("Moedas: " + state.moedas, 38, 142);
+
+        ctx.fillStyle = "#38bdf8";
+        ctx.fillText("Recorde: " + state.recorde + " pts", 185, 142);
+
+        const activeChar = getCharById(state.selectedChar);
+        ctx.fillStyle = "#cbd5e1";
+        ctx.font = "600 11px Inter, sans-serif";
+        ctx.fillText("Gato: " + activeChar.nome + " | Ases: " + state.equippedAces.length + "/" + ACES.length, 38, 165);
+
+        drawCat(ctx, activeChar.id, W * 0.5 - 16, 198, 32, 34, frame, {});
+        ctx.fillStyle = "#94a3b8";
+        ctx.font = "600 10.5px Inter, sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText(activeChar.passiva, W * 0.5, 254);
+
+        addHitBox(50, 274, W - 100, 48, startRun);
+        drawBtn(50, 274, W - 100, 48, "JOGAR AGORA", "#16a34a", "#ffffff", 15);
+
+        addHitBox(24, 336, 98, 40, function () {
+          confirmResetStep = 0;
+          tela = "LOJA";
+        });
+        drawBtn(24, 336, 98, 40, "LOJA (" + state.unlockedChars.length + "/9)", "#2563eb", "#ffffff", 10.5);
+
+        addHitBox(131, 336, 98, 40, function () {
+          confirmResetStep = 0;
+          tela = "ASES";
+        });
+        drawBtn(131, 336, 98, 40, "ASES (" + state.equippedAces.length + ")", "#7c3aed", "#ffffff", 11);
+
+        addHitBox(238, 336, 98, 40, function () {
+          confirmResetStep = 0;
+          tela = "CONQUISTAS";
+        });
+        drawBtn(238, 336, 98, 40, "CONQUISTAS", "#d97706", "#ffffff", 11);
+
+        if (feedbackTimer > 0 && feedbackMsg) {
+          ctx.fillStyle = "#f59e0b";
+          ctx.font = "700 11px Inter, sans-serif";
+          ctx.textAlign = "center";
+          ctx.fillText(feedbackMsg, W * 0.5, 405);
+          feedbackTimer--;
+        }
+      }
+
+      function drawLoja() {
+        ctx.fillStyle = "#0f172a";
+        ctx.fillRect(0, 0, W, H);
+
+        ctx.fillStyle = "#f8fafc";
+        ctx.font = "900 18px Inter, sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText("LOJA DE GATOS (Pág. " + (shopPage + 1) + "/2)", W * 0.5, 32);
+
+        ctx.fillStyle = "#fbbf24";
+        ctx.font = "800 12px Inter, sans-serif";
+        ctx.fillText("Moedas: " + state.moedas + "   |   Recorde: " + state.recorde + " pts", W * 0.5, 52);
+
+        const perPage = 5;
+        const startIdx = shopPage * perPage;
+        const slice = CHARACTERS.slice(startIdx, startIdx + perPage);
+
+        slice.forEach(function (ch, idx) {
+          const y = 66 + idx * 70;
+          const unlocked = isCharUnlocked(ch);
+          const metaReached = isMetaReached(ch);
+          const selected = state.selectedChar === ch.id && unlocked;
+
+          ctx.fillStyle = selected ? "rgba(37, 99, 235, 0.25)" : "#1e293b";
+          roundRectPath(ctx, 16, y, W - 32, 62, 12);
+          ctx.fill();
+
+          drawCat(ctx, ch.id, 24, y + 12, 32, 34, frame, {});
+
+          ctx.fillStyle = "#f8fafc";
+          ctx.font = "800 11.5px Inter, sans-serif";
+          ctx.textAlign = "left";
+          ctx.fillText(ch.nome + " (" + ch.vidas + "v / " + ch.pulos + "p)", 64, y + 17);
+
+          ctx.fillStyle = "#cbd5e1";
+          ctx.font = "500 10px Inter, sans-serif";
+          ctx.fillText(ch.passivaCurta, 64, y + 31);
+
+          if (unlocked) {
+            ctx.fillStyle = "#4ade80";
+            ctx.font = "700 10px Inter, sans-serif";
+            ctx.fillText("DESBLOQUEADO", 64, y + 48);
+
+            addHitBox(258, y + 15, 76, 32, function () {
+              state.selectedChar = ch.id;
+              saveGame();
+            });
+            drawBtn(258, y + 15, 76, 32, selected ? "USANDO" : "USAR", selected ? "#16a34a" : "#334155", "#fff", 10);
+          } else if (metaReached) {
+            ctx.fillStyle = "#38bdf8";
+            ctx.font = "700 9.5px Inter, sans-serif";
+            ctx.fillText("Meta batida! Preço: " + ch.preco + "m", 64, y + 48);
+
+            const canBuy = state.moedas >= ch.preco;
+            addHitBox(258, y + 15, 76, 32, function () {
+              ensureAudio();
+              if (!isMetaReached(ch)) {
+                setBanner("Bata a meta de " + ch.metaPts + " pts para comprar!");
+                return;
+              }
+              if (state.moedas >= ch.preco) {
+                state.moedas -= ch.preco;
+                if (!state.unlockedChars.includes(ch.id)) {
+                  state.unlockedChars.push(ch.id);
+                }
+                state.selectedChar = ch.id;
+                checkAchievements();
+                saveGame();
+                sfx.power();
+              } else {
+                setBanner("Moedas insuficientes para " + ch.nome + "!");
+              }
+            });
+            drawBtn(258, y + 15, 76, 32, "COMPRAR", canBuy ? "#d97706" : "#475569", "#fff", 10);
+          } else {
+            ctx.fillStyle = "#fbbf24";
+            ctx.font = "700 9.5px Inter, sans-serif";
+            ctx.fillText("Meta: " + ch.metaPts + " pts | Depois: " + ch.preco + "m", 64, y + 48);
+
+            addHitBox(258, y + 15, 76, 32, function () {
+              setBanner("Alcance " + ch.metaPts + " pts para liberar a compra!");
+            });
+            drawBtn(258, y + 15, 76, 32, "META", "#334155", "#94a3b8", 10);
+          }
+        });
+
+        addHitBox(16, 424, 96, 34, function () {
+          shopPage = shopPage === 0 ? 1 : 0;
+        });
+        drawBtn(16, 424, 96, 34, shopPage === 0 ? "PÁG 2/2 >" : "< PÁG 1/2", "#334155", "#fff", 10.5);
+
+        if (feedbackTimer > 0 && feedbackMsg) {
+          ctx.fillStyle = "#fbbf24";
+          ctx.font = "700 10.5px Inter, sans-serif";
+          ctx.textAlign = "center";
+          ctx.fillText(feedbackMsg, W * 0.5 + 32, 445);
+          feedbackTimer--;
+        }
+
+        addHitBox(100, 468, W - 200, 38, function () {
+          tela = "MENU";
+        });
+        drawBtn(100, 468, W - 200, 38, "VOLTAR AO MENU", "#2563eb", "#fff", 12);
+      }
+
+      function drawAses() {
+        ctx.fillStyle = "#0f172a";
+        ctx.fillRect(0, 0, W, H);
+
+        ctx.fillStyle = "#f8fafc";
+        ctx.font = "900 18px Inter, sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText("ASES DE BATALHA", W * 0.5, 32);
+
+        ctx.fillStyle = "#fbbf24";
+        ctx.font = "800 12px Inter, sans-serif";
+        ctx.fillText("Moedas: " + state.moedas + "   |   Equipados: " + state.equippedAces.length, W * 0.5, 52);
+
+        ACES.forEach(function (ace, idx) {
+          const y = 66 + idx * 62;
+          const owned = state.ownedAces.includes(ace.id);
+          const equipped = state.equippedAces.includes(ace.id);
+
+          ctx.fillStyle = equipped ? "rgba(124, 58, 237, 0.28)" : "#1e293b";
+          roundRectPath(ctx, 16, y, W - 32, 54, 11);
+          ctx.fill();
+
+          ctx.fillStyle = "#f8fafc";
+          ctx.font = "800 12px Inter, sans-serif";
+          ctx.textAlign = "left";
+          ctx.fillText(ace.nome + (owned ? "" : " (" + ace.preco + "m)"), 26, y + 20);
+
+          ctx.fillStyle = "#cbd5e1";
+          ctx.font = "500 10px Inter, sans-serif";
+          ctx.fillText(ace.desc, 26, y + 38);
+
+          addHitBox(254, y + 11, 80, 32, function () {
+            ensureAudio();
+            if (!owned) {
+              if (state.moedas >= ace.preco) {
+                state.moedas -= ace.preco;
+                state.ownedAces.push(ace.id);
+                state.equippedAces.push(ace.id);
+                saveGame();
+                sfx.power();
+              } else {
+                setBanner("Moedas insuficientes para este Ás!");
+              }
+            } else {
+              if (equipped) {
+                state.equippedAces = state.equippedAces.filter(function (id) { return id !== ace.id; });
+              } else {
+                state.equippedAces.push(ace.id);
+              }
+              saveGame();
+            }
+          });
+
+          const btnTxt = !owned ? "COMPRAR" : equipped ? "TIRAR" : "EQUIPAR";
+          const btnCol = !owned ? (state.moedas >= ace.preco ? "#d97706" : "#475569") : equipped ? "#dc2626" : "#16a34a";
+          drawBtn(254, y + 11, 80, 32, btnTxt, btnCol, "#fff", 10);
+        });
+
+        if (feedbackTimer > 0 && feedbackMsg) {
+          ctx.fillStyle = "#fbbf24";
+          ctx.font = "700 11px Inter, sans-serif";
+          ctx.textAlign = "center";
+          ctx.fillText(feedbackMsg, W * 0.5, 452);
+          feedbackTimer--;
+        }
+
+        addHitBox(100, 468, W - 200, 38, function () {
+          tela = "MENU";
+        });
+        drawBtn(100, 468, W - 200, 38, "VOLTAR AO MENU", "#2563eb", "#fff", 12);
+      }
+
+      function drawConquistas() {
+        ctx.fillStyle = "#0f172a";
+        ctx.fillRect(0, 0, W, H);
+
+        ctx.fillStyle = "#f8fafc";
+        ctx.font = "900 18px Inter, sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText("CONQUISTAS (" + state.unlockedAchs.length + "/" + ACHIEVEMENTS.length + ")", W * 0.5, 32);
+
+        const perPage = 5;
+        const totalPages = Math.ceil(ACHIEVEMENTS.length / perPage);
+        const slice = ACHIEVEMENTS.slice(achPage * perPage, achPage * perPage + perPage);
+
+        slice.forEach(function (a, idx) {
+          const y = 52 + idx * 72;
+          const done = state.unlockedAchs.includes(a.id);
+          const curVal = a.stat === "unlockedCount" ? state.unlockedChars.length : (state.stats[a.stat] || 0);
+          const ratio = Math.min(1, curVal / a.alvo);
+
+          ctx.fillStyle = done ? "rgba(22, 163, 74, 0.2)" : "#1e293b";
+          roundRectPath(ctx, 16, y, W - 32, 64, 11);
+          ctx.fill();
+
+          ctx.fillStyle = done ? "#4ade80" : "#f8fafc";
+          ctx.font = "800 11.5px Inter, sans-serif";
+          ctx.textAlign = "left";
+          ctx.fillText((done ? "[OK] " : "") + a.titulo, 26, y + 18);
+
+          ctx.fillStyle = "#fbbf24";
+          ctx.font = "800 10.5px Inter, sans-serif";
+          ctx.textAlign = "right";
+          ctx.fillText("+" + a.premio + "m", W - 26, y + 18);
+
+          ctx.fillStyle = "#cbd5e1";
+          ctx.font = "500 10px Inter, sans-serif";
+          ctx.textAlign = "left";
+          ctx.fillText(a.desc, 26, y + 33);
+
+          ctx.fillStyle = "#0f172a";
+          roundRectPath(ctx, 26, y + 42, W - 52, 10, 5);
+          ctx.fill();
+
+          ctx.fillStyle = done ? "#22c55e" : "#f59e0b";
+          roundRectPath(ctx, 26, y + 42, (W - 52) * ratio, 10, 5);
+          ctx.fill();
+
+          ctx.fillStyle = "#e2e8f0";
+          ctx.font = "700 8.5px Inter, sans-serif";
+          ctx.textAlign = "center";
+          ctx.fillText(Math.min(curVal, a.alvo) + " / " + a.alvo, W * 0.5, y + 50);
+        });
+
+        addHitBox(16, 422, 104, 34, function () {
+          achPage = (achPage - 1 + totalPages) % totalPages;
+        });
+        drawBtn(16, 422, 104, 34, "< ANTERIOR", "#334155", "#fff", 10);
+
+        ctx.fillStyle = "#94a3b8";
+        ctx.font = "700 11px Inter, sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText("Pág " + (achPage + 1) + " / " + totalPages, W * 0.5, 443);
+
+        addHitBox(W - 120, 422, 104, 34, function () {
+          achPage = (achPage + 1) % totalPages;
+        });
+        drawBtn(W - 120, 422, 104, 34, "PRÓXIMA >", "#334155", "#fff", 10);
+
+        addHitBox(100, 468, W - 200, 38, function () {
+          tela = "MENU";
+        });
+        drawBtn(100, 468, W - 200, 38, "VOLTAR AO MENU", "#2563eb", "#fff", 12);
+      }
+
+      function drawPause() {
+        drawGameplay();
+        ctx.fillStyle = "rgba(9, 13, 22, 0.78)";
+        ctx.fillRect(0, 0, W, H);
+
+        ctx.fillStyle = "#f8fafc";
+        ctx.font = "900 24px Inter, sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText("JOGO PAUSADO", W * 0.5, 175);
+
+        addHitBox(65, 215, W - 130, 46, function () {
+          tela = "JOGO";
+        });
+        drawBtn(65, 215, W - 130, 46, "CONTINUAR", "#16a34a", "#fff", 13);
+
+        addHitBox(65, 275, W - 130, 44, startRun);
+        drawBtn(65, 275, W - 130, 44, "REINICIAR CORRIDA", "#d97706", "#fff", 12);
+
+        addHitBox(65, 333, W - 130, 44, function () {
+          tela = "MENU";
+        });
+        drawBtn(65, 333, W - 130, 44, "SAIR PARA O MENU", "#334155", "#fff", 12);
+      }
+
+      function drawGameOver() {
+        drawBackground();
+        ctx.fillStyle = "rgba(9, 13, 22, 0.84)";
+        ctx.fillRect(0, 0, W, H);
+
+        ctx.fillStyle = "#f87171";
+        ctx.font = "900 26px Inter, sans-serif";
+        ctx.textAlign = "center";
+        ctx.fillText("FIM DE CORRIDA", W * 0.5, 96);
+
+        ctx.fillStyle = "#1e293b";
+        roundRectPath(ctx, 32, 116, W - 64, 126, 16);
+        ctx.fill();
+
+        ctx.fillStyle = "#f8fafc";
+        ctx.font = "800 16px Inter, sans-serif";
+        ctx.fillText("Pontuação Final: " + pts, W * 0.5, 148);
+
+        ctx.fillStyle = "#fbbf24";
+        ctx.font = "800 15px Inter, sans-serif";
+        ctx.fillText("Moedas Ganhas: +" + runCoins, W * 0.5, 176);
+
+        ctx.fillStyle = "#38bdf8";
+        ctx.font = "700 13px Inter, sans-serif";
+        ctx.fillText("Recorde: " + state.recorde + "   |   Saldo: " + state.moedas, W * 0.5, 206);
+
+        if (feedbackTimer > 0 && feedbackMsg) {
+          ctx.fillStyle = "#4ade80";
+          ctx.font = "700 11px Inter, sans-serif";
+          ctx.fillText(feedbackMsg, W * 0.5, 232);
+          feedbackTimer--;
+        }
+
+        const canContinue = !continuedThisRun && state.moedas >= CONTINUE_COST;
+        const contLabel = continuedThisRun
+          ? "CONTINUAR USADO"
+          : "CONTINUAR (" + CONTINUE_COST + "M)";
+
+        addHitBox(55, 256, W - 110, 44, continueFromDeath);
+        drawBtn(
+          55,
+          256,
+          W - 110,
+          44,
+          contLabel,
+          canContinue ? "#d97706" : "#475569",
+          canContinue ? "#ffffff" : "#cbd5e1",
+          12.5
+        );
+
+        addHitBox(55, 310, W - 110, 44, startRun);
+        drawBtn(55, 310, W - 110, 44, "JOGAR NOVAMENTE", "#16a34a", "#fff", 13.5);
+
+        addHitBox(55, 364, W - 110, 42, function () {
+          tela = "MENU";
+        });
+        drawBtn(55, 364, W - 110, 42, "MENU PRINCIPAL", "#2563eb", "#fff", 12);
+      }
+
+      // =========================================================
+      // HELPERS DE DESENHO E CONTROLES (TOQUE, MOUSE E TECLADO)
+      // =========================================================
+      function roundRectPath(c, x, y, w, h, r) {
+        const radius = Math.max(0, Math.min(r, w / 2, h / 2));
+        c.beginPath();
+        c.moveTo(x + radius, y);
+        c.arcTo(x + w, y, x + w, y + h, radius);
+        c.arcTo(x + w, y + h, x, y + h, radius);
+        c.arcTo(x, y + h, x, y, radius);
+        c.arcTo(x, y, x + w, y, radius);
+        c.closePath();
+      }
+
+      function addHitBox(x, y, w, h, fn) {
+        hitBoxes.push({ x: x, y: y, w: w, h: h, fn: fn });
+      }
+
+      function drawBtn(x, y, w, h, text, bg, fg, fontSize) {
+        ctx.fillStyle = bg;
+        roundRectPath(ctx, x, y, w, h, 10);
+        ctx.fill();
+        ctx.fillStyle = fg;
+        ctx.font = "800 " + fontSize + "px Inter, sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(text, x + w * 0.5, y + h * 0.5 + 0.5);
+        ctx.textBaseline = "alphabetic";
+      }
+
+      function getCanvasPoint(clientX, clientY) {
+        const rect = canvas.getBoundingClientRect();
+        const safeW = rect.width || W;
+        const safeH = rect.height || H;
+        return {
+          x: ((clientX - rect.left) / safeW) * W,
+          y: ((clientY - rect.top) / safeH) * H
+        };
+      }
+
+      function handlePointerDown(clientX, clientY) {
+        ensureAudio();
+        const pt = getCanvasPoint(clientX, clientY);
+
+        for (let i = hitBoxes.length - 1; i >= 0; i--) {
+          const b = hitBoxes[i];
+          if (pt.x >= b.x && pt.x <= b.x + b.w && pt.y >= b.y && pt.y <= b.y + b.h) {
+            b.fn();
+            return;
+          }
+        }
+
+        if (tela === "JOGO") {
+          doJump();
+        }
+      }
+
+      canvas.addEventListener("pointerdown", function (e) {
+        e.preventDefault();
+        handlePointerDown(e.clientX, e.clientY);
+      });
+
+      window.addEventListener("keydown", function (e) {
+        if (e.code === "Space" || e.code === "ArrowUp") {
+          e.preventDefault();
+          if (tela === "JOGO") {
+            doJump();
+          } else if (tela === "MENU" || tela === "GAMEOVER") {
+            startRun();
+          }
+        } else if (e.code === "KeyP" || e.code === "Escape") {
+          if (tela === "JOGO") tela = "PAUSA";
+          else if (tela === "PAUSA") tela = "JOGO";
+        } else if (e.code === "Enter") {
+          if (tela === "MENU" || tela === "GAMEOVER") {
+            startRun();
+          } else if (tela === "PAUSA") {
+            tela = "JOGO";
+          }
+        }
+      });
+
+      function loop() {
+        try {
+          hitBoxes = [];
+
+          if (tela === "JOGO") {
+            updateGame();
+            drawGameplay();
+          } else if (tela === "MENU") {
+            drawMenu();
+          } else if (tela === "LOJA") {
+            drawLoja();
+          } else if (tela === "ASES") {
+            drawAses();
+          } else if (tela === "CONQUISTAS") {
+            drawConquistas();
+          } else if (tela === "PAUSA") {
+            drawPause();
+          } else if (tela === "GAMEOVER") {
+            drawGameOver();
+          }
+        } catch (err) {
+          ctx.fillStyle = "#0f172a";
+          ctx.fillRect(0, 0, W, H);
+          ctx.fillStyle = "#f87171";
+          ctx.font = "700 13px Inter, sans-serif";
+          ctx.textAlign = "center";
+          ctx.fillText("Erro recuperado na renderização.", W * 0.5, H * 0.5);
+        }
+
+        requestAnimationFrame(loop);
+      }
+
+      loop();
+    })();
+  </script>
+</body>
+</html>
+```
